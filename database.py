@@ -1,18 +1,22 @@
 import sqlite3
 
-
-DB_NAME = "words.db"
-
+DB_NAME = "data.db"
 
 def create_tables():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-
-    # Drop and recreate words table
-    cursor.execute("DROP TABLE IF EXISTS words")
     cursor.execute("""
-        CREATE TABLE words (
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS words (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             english TEXT NOT NULL,
             translated TEXT NOT NULL,
@@ -20,30 +24,32 @@ def create_tables():
         )
     """)
 
-
-    # Single-user table to store highest score
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_score (
-            id INTEGER PRIMARY KEY,
-            highest_score INTEGER DEFAULT 0
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            highest_score INTEGER DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(id)
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS session (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER
+        )
+    """)
+    cursor.execute("INSERT OR IGNORE INTO users (id, username, password, role) VALUES (1, 'admin', 'admin', 'admin')")
 
-    # Insert default user if not exists
-    cursor.execute("INSERT OR IGNORE INTO user_score (id, highest_score) VALUES (1, 0)")
-   
     conn.commit()
     conn.close()
-    print("✅ Tables created successfully.")
+    print("✅ Database initialized.")
 
-
-# ------------------- Words management -------------------
 def populate_words():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-
+    # Spanish words
     spanish_data = [
         ("Hello", "Hola"), ("Goodbye", "Adios"), ("Thank you", "Gracias"),
         ("Dog", "Perro"), ("Cat", "Gato"), ("Love", "Amor"),
@@ -80,8 +86,10 @@ def populate_words():
         ("Need", "Necesitar"), ("Want", "Querer"), ("Like", "Gustar"),
         ("Hate", "Odiar"), ("Live", "Vivir"), ("Die", "Morir")
     ]
+
+    # Japanese words
     japanese_data = [
-       ("Hello", "Konnichiwa"), ("Goodbye", "Sayonara"), ("Thank you", "Arigatou"),
+        ("Hello", "Konnichiwa"), ("Goodbye", "Sayonara"), ("Thank you", "Arigatou"),
         ("Dog", "Inu"), ("Cat", "Neko"), ("Love", "Ai"),
         ("Water", "Mizu"), ("Food", "Tabemono"), ("Book", "Hon"),
         ("Pen", "Pen"), ("Chair", "Isu"), ("Table", "Tēburu"),
@@ -115,10 +123,11 @@ def populate_words():
         ("Win", "Katsu"), ("Lose", "Makeru"), ("Help", "Tetsudau"),
         ("Need", "Hitsuyou"), ("Want", "Hoshii"), ("Like", "Suki"),
         ("Hate", "Kirai"), ("Live", "Ikiru"), ("Die", "Shinu")
-
     ]
+
+    # Korean words
     korean_data = [
-       ("Hello", "Annyeonghaseyo"), ("Goodbye", "Annyeonghi gaseyo"), ("Thank you", "Gamsahamnida"),
+        ("Hello", "Annyeonghaseyo"), ("Goodbye", "Annyeonghi gaseyo"), ("Thank you", "Gamsahamnida"),
         ("Dog", "Gae"), ("Cat", "Goyangi"), ("Love", "Sarang"),
         ("Water", "Mul"), ("Food", "Eumsik"), ("Book", "Chaek"),
         ("Pen", "Pen"), ("Chair", "Uija"), ("Table", "Teibeul"),
@@ -154,118 +163,36 @@ def populate_words():
         ("Hate", "Silheohada"), ("Live", "Salda"), ("Die", "Jukda")
     ]
 
+    all_words = [(e,t,"Spanish") for e,t in spanish_data] + \
+                [(e,t,"Japanese") for e,t in japanese_data] + \
+                [(e,t,"Korean") for e,t in korean_data]
 
-    spanish_words = [(en, tr, "Spanish") for en, tr in spanish_data]
-    japanese_words = [(en, tr, "Japanese") for en, tr in japanese_data]
-    korean_words = [(en, tr, "Korean") for en, tr in korean_data]
-
-
-    cursor.executemany("INSERT INTO words (english, translated, language) VALUES (?, ?, ?)",
-                       spanish_words + japanese_words + korean_words)
-
-
+    cursor.executemany("INSERT INTO words (english, translated, language) VALUES (?, ?, ?)", all_words)
     conn.commit()
     conn.close()
-    print("✅ Words populated.")
+    print(f"✅ Words populated ({len(all_words)} total).")
 
-
-def list_words():
+def save_session(user_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, english, translated, language FROM words ORDER BY id")
-    for row in cursor.fetchall():
-        print(f"{row[0]}. {row[1]} => {row[2]} ({row[3]})")
-    conn.close()
-
-
-def add_word():
-    english = input("Enter English word: ").strip()
-    translated = input("Enter Translated word: ").strip()
-    language = input("Enter language: ").strip()
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO words (english, translated, language) VALUES (?, ?, ?)",
-                   (english, translated, language))
-    conn.commit()
-    conn.close()
-    print("✅ Word added.")
-
-
-def delete_word():
-    identifier = input("Enter word ID or English word to delete: ").strip()
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    if identifier.isdigit():
-        cursor.execute("DELETE FROM words WHERE id = ?", (int(identifier),))
-    else:
-        cursor.execute("DELETE FROM words WHERE english = ?", (identifier,))
-    if cursor.rowcount == 0:
-        print("❌ No matching word found.")
-    else:
-        print("✅ Word deleted.")
+    cursor.execute("DELETE FROM session") 
+    if user_id:
+        cursor.execute("INSERT INTO session (user_id) VALUES (?)", (user_id,))
     conn.commit()
     conn.close()
 
-
-# ------------------- Highest Score -------------------
-def show_highest_score():
+def load_session():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("SELECT highest_score FROM user_score WHERE id=1")
-    score = cursor.fetchone()[0]
-    print(f"🏆 Highest Score: {score}")
+    cursor.execute("SELECT user_id FROM session LIMIT 1")
+    row = cursor.fetchone()
     conn.close()
-
-
-def update_highest_score():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-    score = int(input("Enter new score: "))
-    cursor.execute("SELECT highest_score FROM user_score WHERE id=1")
-    highest = cursor.fetchone()[0]
-    if score > highest:
-        cursor.execute("UPDATE user_score SET highest_score=? WHERE id=1", (score,))
-        conn.commit()
-        print(f"✅ New highest score saved: {score}")
-    else:
-        print("ℹ️ Score not higher than current highest.")
-    conn.close()
-
-
-# ------------------- Menu -------------------
-def menu():
-    create_tables()
-    while True:
-        print("\n📘 Language Word Manager")
-        print("1. Populate words")
-        print("2. List all words")
-        print("3. Add a new word")
-        print("4. Delete a word")
-        print("5. Show highest score")
-        print("6. Update highest score")
-        print("7. Exit")
-
-
-        choice = input("Choose an option: ").strip()
-        if choice == '1':
-            populate_words()
-        elif choice == '2':
-            list_words()
-        elif choice == '3':
-            add_word()
-        elif choice == '4':
-            delete_word()
-        elif choice == '5':
-            show_highest_score()
-        elif choice == '6':
-            update_highest_score()
-        elif choice == '7':
-            break
-        else:
-            print("❌ Invalid choice. Try again.")
-
-
-if __name__ == "__main__":
-    menu()
-
-
+    if row:
+        user_id = row[0]
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, username, role FROM users WHERE id=?", (user_id,))
+        user = cursor.fetchone()
+        conn.close()
+        return user
+    return None
